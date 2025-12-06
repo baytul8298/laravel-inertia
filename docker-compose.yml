@@ -1,0 +1,97 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: inertia_nginx
+    restart: unless-stopped
+    ports:
+      - 8080:80
+      - 8443:443
+    volumes:
+      - ./:/var/www/html:cached
+      - ./.docker/nginx:/etc/nginx/conf.d
+      - ./.docker/nginx/ssl:/etc/nginx/conf.d/ssl
+    depends_on:
+      - app
+    networks:
+      - inertia-network
+
+  node:
+    image: node:20-alpine
+    container_name: inertia_node
+    working_dir: /var/www/html
+    command: tail -f /dev/null
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/var/www/html:cached
+    networks:
+      - inertia-network
+
+  app:
+    build:
+      context: ./.docker/php
+      dockerfile: Dockerfile
+    container_name: inertia_app
+    restart: unless-stopped
+    volumes:
+      - ./:/var/www/html:cached
+      - ./.docker/php/php-fpm.ini:/usr/local/etc/php/conf.d/custom.ini
+      - /home/user/.ssh:/root/.ssh:ro
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - inertia-network
+
+  mysql:
+    image: mysql:8.2
+    container_name: inertia_mysql
+    restart: unless-stopped
+    ports:
+      - "3309:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: backend_inertia_db
+    volumes:
+      - backend_inertia_data:/var/lib/mysql
+    # --- HEALTH CHECK ADDED HERE ---
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD" ]
+      timeout: 5s
+      retries: 10
+      interval: 10s
+    networks:
+      - inertia-network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: inertia_phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+    # --- DEPENDENCY UPDATED TO WAIT FOR HEALTHY STATUS ---
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - inertia-network
+
+  redis:
+    image: redis:alpine
+    container_name: inertia_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    networks:
+      - inertia-network
+
+networks:
+  inertia-network:
+    driver: bridge
+
+volumes:
+  backend_inertia_data:
